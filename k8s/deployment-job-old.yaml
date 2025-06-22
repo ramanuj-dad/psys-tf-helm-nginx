@@ -1,0 +1,168 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: deployment-automation
+  labels:
+    name: deployment-automation
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: terraform-deployer
+  namespace: deployment-automation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: terraform-deployer
+rules:
+- apiGroups: [""]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["apps"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["extensions"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources: ["*"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: terraform-deployer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: terraform-deployer
+subjects:
+- kind: ServiceAccount
+  name: terraform-deployer
+  namespace: deployment-automation
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployment-config
+  namespace: deployment-automation
+data:
+  # Terraform configuration files will be mounted here
+  # This will be populated by the CI/CD pipeline
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nginx-ingress-deployment
+  namespace: deployment-automation
+  labels:
+    app: nginx-ingress-deployment
+    component: terraform-deployer
+spec:
+  ttlSecondsAfterFinished: 3600  # Keep job for 1 hour after completion
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: nginx-ingress-deployment
+        component: terraform-deployer
+    spec:
+      serviceAccountName: terraform-deployer
+      restartPolicy: Never
+      containers:
+      - name: terraform-deployer
+        image: psys-terraform-deployer:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/entrypoint.sh"]
+        args: ["apply"]  # Can be: plan, apply, destroy, test
+        env:
+        - name: KUBECONFIG
+          value: "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        - name: TERRAFORM_IN_AUTOMATION
+          value: "true"
+        - name: TF_INPUT
+          value: "false"
+        - name: TF_LOG
+          value: "INFO"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: terraform-config
+          mountPath: /workspace/terraform
+        - name: helm-config
+          mountPath: /workspace/helm
+        - name: scripts
+          mountPath: /workspace/scripts
+      volumes:
+      - name: workspace
+        emptyDir: {}
+      - name: terraform-config
+        configMap:
+          name: terraform-config
+      - name: helm-config
+        configMap:
+          name: helm-config
+      - name: scripts
+        configMap:
+          name: scripts-config
+          defaultMode: 0755
+---
+# Separate job for testing
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nginx-ingress-test
+  namespace: deployment-automation
+  labels:
+    app: nginx-ingress-test
+    component: terraform-tester
+spec:
+  ttlSecondsAfterFinished: 1800  # Keep for 30 minutes
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: nginx-ingress-test
+        component: terraform-tester
+    spec:
+      serviceAccountName: terraform-deployer
+      restartPolicy: Never
+      containers:
+      - name: terraform-tester
+        image: psys-terraform-deployer:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/entrypoint.sh"]
+        args: ["test"]
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: scripts
+          mountPath: /workspace/scripts
+      volumes:
+      - name: workspace
+        emptyDir: {}
+      - name: scripts
+        configMap:
+          name: scripts-config
+          defaultMode: 0755

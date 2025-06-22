@@ -1,0 +1,192 @@
+Kubernetes v1.33 Setup Guide for CentOS Stream 10
+
+This guide provides a comprehensive walkthrough for setting up a single-node Kubernetes cluster on CentOS Stream 10, using CRI-O as the container runtime and Cilium as the CNI to align with modern, production-grade standards.
+Phase 1: System Preparation & Pre-flight Checks
+
+This phase ensures your system is correctly configured before installing any Kubernetes components.
+
+1. Verify System Requirements
+Ensure your machine meets the minimums: 2+ CPUs and 2GB+ of RAM.
+
+# Check CPU cores
+lscpu | grep "^CPU(s):"
+
+# Check memory
+free -h
+
+2. Set a Unique Hostname
+If your hostname is generic (e.g., localhost), set a unique one.
+
+sudo hostnamectl set-hostname control-plane
+
+    Note: Log out and log back in to see the new hostname in your shell prompt.
+
+3. Disable Swap Memory
+Kubernetes requires swap to be disabled.
+
+# Disable swap for the current session
+sudo swapoff -a
+
+# Disable swap permanently by commenting it out in /etc/fstab
+sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+4. Configure Firewall Rules
+Open the necessary ports for the Kubernetes control-plane using firewalld.
+
+# Open required ports
+sudo firewall-cmd --permanent --add-port=6443/tcp
+sudo firewall-cmd --permanent --add-port=2379-2380/tcp
+sudo firewall-cmd --permanent --add-port=10250/tcp
+sudo firewall-cmd --permanent --add-port=10257/tcp
+sudo firewall-cmd --permanent --add-port=10259/tcp
+sudo firewall-cmd --permanent --add-port=30000-32767/tcp
+
+# Reload the firewall to apply changes
+sudo firewall-cmd --reload
+
+5. Load Required Kernel Modules
+These modules are necessary for container networking and overlays.
+
+# Load overlay and br_netfilter modules
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+# Persist these modules across reboots
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+6. Configure Kernel sysctl Parameters
+These settings enable IP forwarding and ensure network packets are correctly processed by the bridge.
+
+# Create the Kubernetes sysctl configuration file
+cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.ipv4.ip_forward                 = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+EOF
+
+# Apply the sysctl parameters without a reboot
+sudo sysctl --system
+
+7. Set SELinux to Permissive Mode
+This is the recommended approach for kubeadm to allow containers to access the host filesystem.
+
+# Set SELinux to permissive mode for the current session
+sudo setenforce 0
+
+# Set SELinux to permissive mode permanently
+sudo sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
+
+Phase 2: Add Package Repositories
+
+Here we add the official repositories for CRI-O and Kubernetes.
+
+1. Add the CRI-O Repository
+This step uses the new official CRI-O project repository hosted by OpenSUSE.
+
+cat <<EOF | sudo tee /etc/yum.repos.d/cri-o.repo
+[cri-o]
+name=CRI-O
+baseurl=https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v1.33/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v1.33/rpm/repodata/repomd.xml.key
+EOF
+
+2. Add the Kubernetes Repository
+We will use the official pkgs.k8s.io repository for Kubernetes v1.33.
+
+cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
+[kubernetes]
+name=Kubernetes
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.33/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.33/rpm/repodata/repomd.xml.key
+exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
+EOF
+
+Phase 3: Install Runtime and Kubernetes Tools
+
+Now that the repositories are configured, we install all required packages and enable the services.
+
+1. Install Required Packages
+Install the container-selinux dependency followed by CRI-O and the Kubernetes tools.
+
+sudo dnf install -y container-selinux
+sudo dnf install -y cri-o kubelet kubeadm kubectl --disableexcludes=kubernetes
+
+2. Start and Enable Services
+
+# Start and enable CRI-O
+sudo systemctl daemon-reload
+sudo systemctl enable --now crio
+
+# Enable the kubelet service
+sudo systemctl enable --now kubelet
+
+    The kubelet will restart every few seconds as it waits for kubeadm to provide instructions. This is normal.
+
+Phase 4: Initialize the Kubernetes Cluster
+
+With all components installed and running, we can now bootstrap the control-plane.
+
+1. Pull Required Container Images
+
+sudo kubeadm config images pull --cri-socket unix:///var/run/crio/crio.sock
+
+2. Initialize the Control-Plane
+Run kubeadm init. We will skip the --pod-network-cidr flag because Cilium manages IPAM (IP Address Management) in its own address space.
+
+sudo kubeadm init --cri-socket=unix:///var/run/crio/crio.sock
+
+!!! IMPORTANT !!!
+The output of this command is critical. It will give you a kubeadm join command. Save this entire command in a safe place. You will need it to add worker nodes to your cluster later.
+
+3. Configure kubectl for Cluster Access
+Follow the on-screen instructions from the kubeadm init output to configure kubectl for your user.
+
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+4. Check Node Status
+The node will show as NotReady until a network plugin is installed. This is expected.
+
+kubectl get nodes
+
+Phase 5: Install Cilium CNI
+
+Pods need a network to communicate. We will install Cilium using its official CLI, which is the recommended method for a clean installation.
+
+1. Install the Cilium CLI
+This script downloads the latest stable version of the Cilium CLI, verifies its checksum, and places it in /usr/local/bin.
+
+CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+CLI_ARCH=amd64
+if [ "$(uname -m)" = "aarch64" ]; then CLI_ARCH=arm64; fi
+curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
+sudo tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
+rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+
+2. Install Cilium into the Cluster
+The cilium install command will automatically detect the cluster configuration and install the Cilium components (using Helm under the hood).
+
+cilium install
+
+3. Verify the Installation
+Use the cilium status command to wait for and confirm that Cilium is fully deployed and operational.
+
+cilium status --wait
+
+You should see a status report indicating all components are healthy.
+
+4. Run a Connectivity Test
+Finally, run the built-in connectivity test to ensure all networking paths are working correctly, including pod-to-pod communication and access to services.
+
+cilium connectivity test
+
+Node status will become Ready. You can verify this with kubectl get nodes.

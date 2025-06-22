@@ -1,0 +1,164 @@
+name: Deploy NGINX Ingress Controller
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - apply
+          - destroy
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - 'helm/**'
+      - 'docker/**'
+      - 'k8s/**'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/nginx-ingress-deployer
+
+jobs:
+  build-and-push:
+    name: Build and Push Container
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Output image
+        id: image
+        run: echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_OUTPUT
+
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy Kubernetes Job
+        run: |
+          ACTION="${{ github.event.inputs.action || 'apply' }}"
+          IMAGE="${{ needs.build-and-push.outputs.image }}"
+          
+          # Update deployment job with latest image
+          sed "s|IMAGE_PLACEHOLDER|$IMAGE|g" k8s/deployment-job.yaml > /tmp/deployment-job.yaml
+          sed -i "s|ACTION_PLACEHOLDER|$ACTION|g" /tmp/deployment-job.yaml
+          
+          # Deploy the job
+          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} '
+            # Create namespace if it doesn't exist
+            kubectl create namespace deployment-automation --dry-run=client -o yaml | kubectl apply -f -
+            
+            # Apply the job
+            kubectl delete job nginx-ingress-deployment-'$ACTION' -n deployment-automation --ignore-not-found=true
+          '
+          
+          # Transfer and apply the job manifest
+          scp -i ~/.ssh/id_rsa /tmp/deployment-job.yaml ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}:/tmp/
+          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} '
+            kubectl apply -f /tmp/deployment-job.yaml
+            rm /tmp/deployment-job.yaml
+          '
+
+      - name: Monitor Job Progress
+        run: |
+          ACTION="${{ github.event.inputs.action || 'apply' }}"
+          
+          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} '
+            echo "🚀 Starting deployment job monitoring..."
+            
+            # Wait for job to start
+            kubectl wait --for=condition=ready pod -l job-name=nginx-ingress-deployment-'$ACTION' -n deployment-automation --timeout=300s
+            
+            # Follow job logs
+            kubectl logs job/nginx-ingress-deployment-'$ACTION' -n deployment-automation -f --timeout=600s || true
+            
+            # Check job status
+            echo ""
+            echo "=== Job Status ==="
+            kubectl get job nginx-ingress-deployment-'$ACTION' -n deployment-automation
+            
+            # Check if job succeeded
+            if kubectl get job nginx-ingress-deployment-'$ACTION' -n deployment-automation -o jsonpath="{.status.conditions[?(@.type==\"Complete\")].status}" | grep -q "True"; then
+              echo "✅ Deployment job completed successfully!"
+              
+              if [ "'$ACTION'" = "apply" ]; then
+                echo ""
+                echo "=== NGINX Ingress Controller Status ==="
+                kubectl get pods -n ingress-nginx
+                kubectl get svc -n ingress-nginx
+              fi
+            else
+              echo "❌ Deployment job failed!"
+              exit 1
+            fi
+          '
+
+      - name: Cleanup
+        if: always()
+        run: |
+          ACTION="${{ github.event.inputs.action || 'apply' }}"
+          
+          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} '
+            echo "🧹 Cleaning up old jobs..."
+            # Keep only the last 3 jobs
+            kubectl get jobs -n deployment-automation --sort-by=.metadata.creationTimestamp -o name | head -n -3 | xargs -r kubectl delete -n deployment-automation --ignore-not-found=true || true
+            echo "✅ Cleanup completed"
+          ' || true

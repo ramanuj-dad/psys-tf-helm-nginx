@@ -1,0 +1,235 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample-app
+  labels:
+    name: sample-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-web-app
+  namespace: sample-app
+  labels:
+    app: sample-web-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sample-web-app
+  template:
+    metadata:
+      labels:
+        app: sample-web-app
+    spec:
+      containers:
+      - name: web-app
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        volumeMounts:
+        - name: html-content
+          mountPath: /usr/share/nginx/html
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+      volumes:
+      - name: html-content
+        configMap:
+          name: sample-app-html
+      - name: nginx-config
+        configMap:
+          name: sample-app-nginx-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sample-app-html
+  namespace: sample-app
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>NGINX Ingress Test App</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+                background-color: #f5f5f5;
+            }
+            .container {
+                background-color: white;
+                padding: 30px;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .header {
+                text-align: center;
+                color: #333;
+                border-bottom: 2px solid #4CAF50;
+                padding-bottom: 20px;
+                margin-bottom: 30px;
+            }
+            .status {
+                background-color: #4CAF50;
+                color: white;
+                padding: 15px;
+                border-radius: 5px;
+                text-align: center;
+                margin: 20px 0;
+            }
+            .info {
+                background-color: #f9f9f9;
+                padding: 15px;
+                border-radius: 5px;
+                margin: 20px 0;
+            }
+            .endpoint {
+                background-color: #e7f3ff;
+                padding: 10px;
+                margin: 10px 0;
+                border-radius: 3px;
+                font-family: monospace;
+            }
+            .footer {
+                text-align: center;
+                margin-top: 30px;
+                color: #666;
+                font-size: 14px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🚀 NGINX Ingress Controller</h1>
+                <h2>Test Application</h2>
+            </div>
+            
+            <div class="status">
+                ✅ Ingress Controller is Working!
+            </div>
+            
+            <div class="info">
+                <h3>Application Details</h3>
+                <p><strong>Server:</strong> <span id="hostname">Loading...</span></p>
+                <p><strong>Timestamp:</strong> <span id="timestamp">Loading...</span></p>
+                <p><strong>Client IP:</strong> <span id="client-ip">Loading...</span></p>
+            </div>
+            
+            <div class="info">
+                <h3>Available Endpoints</h3>
+                <div class="endpoint">GET / - This page</div>
+                <div class="endpoint">GET /api/health - Health check</div>
+                <div class="endpoint">GET /api/info - Server information</div>
+            </div>
+            
+            <div class="info">
+                <h3>Test Commands</h3>
+                <div class="endpoint">curl -H "Host: demo.local" http://YOUR_CLUSTER_IP/</div>
+                <div class="endpoint">curl -H "Host: demo.local" http://YOUR_CLUSTER_IP/api/health</div>
+                <div class="endpoint">curl -H "Host: demo.local" http://YOUR_CLUSTER_IP/api/info</div>
+            </div>
+            
+            <div class="footer">
+                <p>Deployed on CentOS Stream 10 Kubernetes Cluster</p>
+                <p>Powered by NGINX Ingress Controller</p>
+            </div>
+        </div>
+        
+        <script>
+            // Update dynamic content
+            document.getElementById('hostname').textContent = window.location.hostname;
+            document.getElementById('timestamp').textContent = new Date().toLocaleString();
+            
+            // Try to get client IP (this might not work due to CORS)
+            fetch('/api/info')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.client_ip) {
+                        document.getElementById('client-ip').textContent = data.client_ip;
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('client-ip').textContent = 'Unable to determine';
+                });
+        </script>
+    </body>
+    </html>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sample-app-nginx-config
+  namespace: sample-app
+data:
+  api.conf: |
+    server {
+        listen 80;
+        server_name _;
+        
+        location / {
+            root /usr/share/nginx/html;
+            index index.html;
+        }
+        
+        location /api/health {
+            add_header Content-Type application/json;
+            return 200 '{"status":"healthy","timestamp":"$time_iso8601","server":"$hostname"}';
+        }
+        
+        location /api/info {
+            add_header Content-Type application/json;
+            return 200 '{"server":"$hostname","timestamp":"$time_iso8601","client_ip":"$remote_addr","user_agent":"$http_user_agent","request_uri":"$request_uri"}';
+        }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-web-app-service
+  namespace: sample-app
+  labels:
+    app: sample-web-app
+spec:
+  selector:
+    app: sample-web-app
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sample-web-app-ingress
+  namespace: sample-app
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  rules:
+  - host: demo.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: sample-web-app-service
+            port:
+              number: 80
