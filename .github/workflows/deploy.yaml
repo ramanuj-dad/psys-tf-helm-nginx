@@ -60,7 +60,7 @@ jobs:
           
       - name: Generate Random Suffix
         id: random
-        run: echo "suffix=$(cat /dev/urandom | tr -dc 'a-z' | fold -w 5 | head -n 1)" >> $GITHUB_OUTPUT
+        run: echo "suffix=$(openssl rand -hex 3 | cut -c1-5 | tr '0-9' 'a-j')" >> $GITHUB_OUTPUT
           
       - name: Create temporary admin service account
         run: |
