@@ -3,38 +3,15 @@ kind: Job
 metadata:
   name: nginx-ingress-deployment-ACTION_PLACEHOLDER
   namespace: deployment-automation
-  labels:
-    app: nginx-ingress-deployer
-    action: ACTION_PLACEHOLDER
 spec:
-  ttlSecondsAfterFinished: 3600  # Clean up after 1 hour
+  ttlSecondsAfterFinished: 3600
   backoffLimit: 1
   template:
-    metadata:
-      labels:
-        app: nginx-ingress-deployer
-        action: ACTION_PLACEHOLDER
     spec:
       restartPolicy: Never
-      initContainers:
-      - name: copy-kubeconfig
-        image: busybox:1.35
-        command: ['sh', '-c']
-        args:
-        - |
-          echo "Copying kubectl config from /host-kube to /shared-kube"
-          cp -r /host-kube/* /shared-kube/ || echo "No kubectl config found"
-          ls -la /shared-kube/
-        volumeMounts:
-        - name: host-kubectl-config
-          mountPath: /host-kube
-          readOnly: true
-        - name: shared-kubectl-config
-          mountPath: /shared-kube
       containers:
       - name: deployer
         image: IMAGE_PLACEHOLDER
-        imagePullPolicy: Always
         env:
         - name: ACTION
           value: "ACTION_PLACEHOLDER"
@@ -43,118 +20,49 @@ spec:
             configMapKeyRef:
               name: deployment-config
               key: cluster_ip
-        - name: TARGET_USER
-          valueFrom:
-            configMapKeyRef:
-              name: deployment-config
-              key: target_user
-        command: ["/bin/bash"]
+        command: ["/bin/bash", "-c"]
         args:
-        - "-c"
         - |
-          set -euo pipefail
-          
-          echo "🚀 NGINX Ingress Controller Deployment Started"
-          echo "=============================================="
+          set -e
+          echo "🚀 NGINX Ingress Deployment Started"
           echo "Action: $ACTION"
           echo "Cluster IP: $CLUSTER_IP"
-          echo "Image: IMAGE_PLACEHOLDER"
-          echo "Date: $(date)"
-          echo ""
           
-          # Change to project directory
           cd /workspace
           
-          # Show project structure
-          echo "📁 Project Structure:"
-          find . -type f -name "*.yaml" -o -name "*.yml" -o -name "*.tf" | head -20
-          echo ""
-          
           if [ "$ACTION" = "apply" ]; then
-            echo "🏗️  APPLYING NGINX Ingress Controller..."
-            echo "======================================"
-            
-            # Apply Terraform first
-            echo "1️⃣  Initializing Terraform..."
+            echo "📋 Applying Terraform..."
             cd terraform
             terraform init
-            
-            echo "2️⃣  Planning Terraform deployment..."
-            terraform plan -var="cluster_ip=$CLUSTER_IP"
-            
-            echo "3️⃣  Applying Terraform changes..."
             terraform apply -auto-approve -var="cluster_ip=$CLUSTER_IP"
             cd ..
             
-            # Apply Helm chart
-            echo "4️⃣  Deploying NGINX Ingress with Helm..."
-            helm upgrade --install nginx-ingress ./helm/nginx-ingress \
+            echo "📋 Installing NGINX Ingress with Helm..."
+            helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+            helm repo update
+            helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
               --namespace ingress-nginx \
               --create-namespace \
-              --set controller.service.type=NodePort \
-              --set controller.service.nodePorts.http=30080 \
-              --set controller.service.nodePorts.https=30443 \
-              --wait --timeout=600s
+              --values helm/values.yaml \
+              --wait
             
-            echo ""
-            echo "✅ NGINX Ingress Controller deployed successfully!"
-            echo ""
-            echo "🌐 Access URLs:"
-            echo "- HTTP:  http://$CLUSTER_IP/"
-            echo "- HTTPS: https://$CLUSTER_IP/"
-            echo "- NodePort HTTP:  http://$CLUSTER_IP:30080/"
-            echo "- NodePort HTTPS: https://$CLUSTER_IP:30443/"
-            echo ""
-            echo "📋 Status:"
+            echo "✅ Deployment completed!"
             kubectl get pods -n ingress-nginx
-            kubectl get svc -n ingress-nginx
             
           elif [ "$ACTION" = "destroy" ]; then
-            echo "🗑️  DESTROYING NGINX Ingress Controller..."
-            echo "======================================="
-            
-            # Remove Helm deployment
-            echo "1️⃣  Removing Helm deployment..."
-            helm uninstall nginx-ingress -n ingress-nginx || echo "⚠️  Helm chart already removed"
-            
-            # Destroy Terraform resources
-            echo "2️⃣  Destroying Terraform resources..."
+            echo "🗑️ Destroying NGINX Ingress..."
+            helm uninstall nginx-ingress -n ingress-nginx || true
             cd terraform
             terraform init
-            terraform destroy -auto-approve -var="cluster_ip=$CLUSTER_IP" || echo "⚠️  Some Terraform resources may have been manually removed"
+            terraform destroy -auto-approve -var="cluster_ip=$CLUSTER_IP" || true
             cd ..
-            
-            # Clean up namespace
-            echo "3️⃣  Cleaning up namespace..."
             kubectl delete namespace ingress-nginx --ignore-not-found=true
-            
-            echo "✅ NGINX Ingress Controller destroyed successfully!"
-            
-          else
-            echo "❌ Unknown action: $ACTION"
-            echo "Supported actions: apply, destroy"
-            exit 1
+            echo "✅ Destruction completed!"
           fi
-          
-          echo ""
-          echo "🎉 Deployment job completed successfully!"
-          echo "Date: $(date)"
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "200m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
         volumeMounts:
-        - name: shared-kubectl-config
+        - name: kube-config
           mountPath: /root/.kube
       volumes:
-      - name: host-kubectl-config
+      - name: kube-config
         hostPath:
-          path: /home/ramanuj/.kube
-          type: Directory
-      - name: shared-kubectl-config
-        emptyDir: {}
-      nodeSelector:
-        kubernetes.io/hostname: psys-centos
+          path: /home/TARGET_USER_PLACEHOLDER/.kube
