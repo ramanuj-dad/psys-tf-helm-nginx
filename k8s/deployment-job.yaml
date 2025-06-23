@@ -10,7 +10,7 @@ spec:
   backoffLimit: 0  # No retries on failure
   template:
     spec:
-      serviceAccountName: nginx-ingress-deployer
+      serviceAccountName: nginx-ingress-deployer-admin
       restartPolicy: Never
       containers:
       - name: deployer

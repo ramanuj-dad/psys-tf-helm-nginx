@@ -58,26 +58,21 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > ~/.kube/config
           chmod 600 ~/.kube/config
           
-      - name: Ensure service account exists with proper permissions
+      - name: Create temporary admin service account
         run: |
           # Create the namespace if it doesn't exist
           kubectl get namespace ${{ env.KUBE_NAMESPACE }} || kubectl create namespace ${{ env.KUBE_NAMESPACE }}
           
-          # Explicitly delete ClusterRole and ClusterRoleBinding first to ensure clean update
-          kubectl delete clusterrole nginx-ingress-deployer --ignore-not-found=true
-          kubectl delete clusterrolebinding nginx-ingress-deployer --ignore-not-found=true
+          # Clean up any previous service accounts and bindings
+          kubectl delete clusterrolebinding nginx-ingress-deployer-admin --ignore-not-found=true
+          kubectl delete serviceaccount nginx-ingress-deployer-admin -n ${{ env.KUBE_NAMESPACE }} --ignore-not-found=true
           
-          # Delete service account
-          kubectl delete serviceaccount nginx-ingress-deployer -n ${{ env.KUBE_NAMESPACE }} --ignore-not-found=true
+          # Create new admin service account with cluster-admin role
+          kubectl apply -f k8s/admin-service-account.yaml
           
-          # Apply the service account and RBAC configuration with updated permissions
-          kubectl apply -f k8s/service-account.yaml
-          
-          # Verify the service account and RBAC resources exist
-          echo "Verifying service account and RBAC resources..."
-          kubectl get serviceaccount nginx-ingress-deployer -n ${{ env.KUBE_NAMESPACE }}
-          kubectl get clusterrole nginx-ingress-deployer
-          kubectl get clusterrolebinding nginx-ingress-deployer
+          echo "Created temporary admin service account for deployment"
+          kubectl get serviceaccount nginx-ingress-deployer-admin -n ${{ env.KUBE_NAMESPACE }}
+          kubectl get clusterrolebinding nginx-ingress-deployer-admin
 
       - name: Deploy
         run: |
@@ -102,6 +97,7 @@ jobs:
           
           # Check if the job failed and get logs
           JOB_STATUS=$(kubectl get job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}')
+          JOB_SUCCEEDED=$(kubectl get job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.status.succeeded}')
           
           echo "Job logs:"
           kubectl logs job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }}
@@ -110,6 +106,15 @@ jobs:
             echo "Checking NGINX Ingress status..."
             kubectl get pods -n ingress-nginx || echo "No pods found in ingress-nginx namespace"
             kubectl get svc -n ingress-nginx || echo "No services found in ingress-nginx namespace"
+          fi
+          
+          # If job succeeded, clean up the admin service account for security
+          if [ "$JOB_SUCCEEDED" = "1" ]; then
+            echo "Job completed successfully. Cleaning up temporary admin service account..."
+            kubectl delete -f k8s/admin-service-account.yaml --ignore-not-found=true
+            echo "Temporary admin service account removed for security"
+          else
+            echo "Job did not complete successfully. Leaving admin service account for debugging."
           fi
           
           # If job failed or appears to be stuck, provide detailed diagnostics

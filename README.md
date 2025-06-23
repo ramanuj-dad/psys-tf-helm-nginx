@@ -8,14 +8,17 @@ The deployment follows Kubernetes-native security best practices:
 
 1. A GitHub Actions workflow builds a container image with all necessary tools (Terraform, kubectl, helm)
 2. The image is pushed to GitHub Container Registry (GHCR)
-3. The workflow deploys a Kubernetes Job in the cluster using the service account authentication
-4. The job container executes Terraform to provision the NGINX Ingress Controller
+3. The workflow creates a temporary service account with cluster-admin privileges
+4. The workflow deploys a Kubernetes Job that uses this service account
+5. The job container executes Terraform to provision the NGINX Ingress Controller
+6. On successful deployment, the temporary admin service account is automatically removed
 
 ## Security Considerations
 
-- Uses Kubernetes Service Account with properly scoped RBAC permissions
+- Uses a temporary admin service account that is removed after successful deployment
+- Service account is left in place if deployment fails to aid debugging
 - No SSH keys or direct node access required
-- Follows the principle of least privilege
+- Clean up of privileged accounts after successful operations
 
 ## Prerequisites
 
