@@ -1,7 +1,9 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nginx-ingress-deployment-ACTION_PLACEHOLDER
+  name: nginx-ingress-deplo          elif [ "$ACTION" = "destroy" ]; then
+            echo "📋 Loading previous Terraform state from ConfigMap (mandatory for destroy)..."
+            ./state-manager.sh load_mandatory || fail "Failed to load Terraform state - cannot destroy without state"nt-ACTION_PLACEHOLDER
   namespace: deployment-automation
   annotations:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
@@ -44,6 +46,9 @@ spec:
           chmod +x /workspace/terraform/state-manager.sh
           
           if [ "$ACTION" = "apply" ]; then
+            echo "📋 Checking for existing Terraform state..."
+            ./state-manager.sh load || echo "No previous state found - starting fresh deployment"
+            
             echo "📋 Initializing Terraform..."
             terraform init || fail "Terraform initialization failed"
             
@@ -56,7 +61,7 @@ spec:
             echo "📋 Terraform deployment completed!"
             terraform output || echo "No outputs available"
             
-            echo "💾 Saving Terraform state to ConfigMap for future destroy operations..."
+            echo "💾 Saving Terraform state to ConfigMap for future operations..."
             ./state-manager.sh save || fail "Failed to save Terraform state to ConfigMap"
             
             echo "✅ Checking deployed resources..."
@@ -64,11 +69,8 @@ spec:
             kubectl get svc -n ingress-nginx || echo "No services found in ingress-nginx namespace"
             
           elif [ "$ACTION" = "destroy" ]; then
-            echo "🔍 Checking previous Terraform state in ConfigMap..."
-            ./state-manager.sh check || fail "No Terraform state found - make sure you've run apply first"
-            
-            echo "📋 Loading previous Terraform state from ConfigMap..."
-            ./state-manager.sh load || fail "Failed to load Terraform state - make sure you've run apply first"
+            echo "� Loading previous Terraform state from ConfigMap (mandatory for destroy)..."
+            ./state-manager.sh load_mandatory || fail "Failed to load Terraform state - cannot destroy without state"
             
             echo "📋 Initializing Terraform..."
             terraform init || fail "Terraform initialization failed"

@@ -26,8 +26,7 @@ provider "helm" {
 # because the job itself runs in this namespace and it's created outside Terraform.
 # This avoids circular dependencies during apply/destroy operations.
 
-
-
+# Terraform manages the ingress-nginx namespace completely
 resource "kubernetes_namespace" "ingress" {
   metadata {
     name = "ingress-nginx"
@@ -35,10 +34,10 @@ resource "kubernetes_namespace" "ingress" {
 }
 
 resource "helm_release" "nginx_ingress" {
-  name       = "nginx-ingress"
-  repository = "https://kubernetes.github.io/ingress-nginx"
-  chart      = "ingress-nginx"
-  namespace  = kubernetes_namespace.ingress.metadata[0].name
+  name             = "nginx-ingress"
+  repository       = "https://kubernetes.github.io/ingress-nginx"
+  chart            = "ingress-nginx"
+  namespace        = kubernetes_namespace.ingress.metadata[0].name
   create_namespace = false
 
   values = [
