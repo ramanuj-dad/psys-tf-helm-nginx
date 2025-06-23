@@ -77,6 +77,10 @@ jobs:
           scp -i ~/.ssh/id_rsa /tmp/job.yaml ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}:/tmp/
           
           ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} "
+            # Create deployment-automation namespace if it doesn't exist
+            kubectl get namespace deployment-automation || kubectl create namespace deployment-automation
+            
+            # Apply the job yaml
             kubectl apply -f /tmp/job.yaml
             rm /tmp/job.yaml
           "
