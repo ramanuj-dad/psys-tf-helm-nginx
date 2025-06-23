@@ -50,3 +50,4 @@ Thumbs.db
 # Container runtime
 *.tar
 *.tar.gz
+temp-*
