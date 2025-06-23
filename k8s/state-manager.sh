@@ -46,7 +46,7 @@ load_state_mandatory() {
     exit 1
   fi
   
-  echo "� Loading Terraform state from ConfigMap..."
+  echo "📦 Loading Terraform state from ConfigMap..."
   LOCK_HCL=$(kubectl get configmap $CONFIGMAP_NAME -n $NAMESPACE -o jsonpath='{.data.lock_hcl_b64}' | base64 -d)
   STATE_FILE=$(kubectl get configmap $CONFIGMAP_NAME -n $NAMESPACE -o jsonpath='{.data.state_file_b64}' | base64 -d)
   
