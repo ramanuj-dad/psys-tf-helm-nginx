@@ -95,6 +95,10 @@ jobs:
           # Use || true to prevent the workflow from failing if the job fails
           kubectl wait --for=condition=complete job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }} --timeout=900s || true
           
+          # Debug: Check if job exists and show its full YAML
+          echo "Job status:"
+          kubectl get job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }} -o yaml || echo "Job not found"
+          
           # Check if the job failed and get logs
           JOB_STATUS=$(kubectl get job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}')
           JOB_SUCCEEDED=$(kubectl get job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.status.succeeded}')
