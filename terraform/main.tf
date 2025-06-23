@@ -26,42 +26,11 @@ provider "helm" {
 # because the job itself runs in this namespace and it's created outside Terraform.
 # This avoids circular dependencies during apply/destroy operations.
 
-resource "kubernetes_config_map" "deployment_config" {
-  metadata {
-    name      = "deployment-config"
-    namespace = "deployment-automation"
-  }
-  data = {
-    cluster_ip = var.cluster_ip
-  }
-}
+
 
 resource "kubernetes_namespace" "ingress" {
   metadata {
     name = "ingress-nginx"
-  }
-}
-
-resource "kubernetes_config_map" "cluster_info" {
-  metadata {
-    name      = "cluster-info"
-    namespace = kubernetes_namespace.ingress.metadata[0].name
-  }
-  data = {
-    cluster_ip = var.cluster_ip
-  }
-}
-
-# Store terraform state/logs information in deployment-automation namespace for inspection
-resource "kubernetes_config_map" "terraform_state" {
-  metadata {
-    name      = "terraform-state"
-    namespace = "deployment-automation"
-  }
-  data = {
-    timestamp    = timestamp()
-    cluster_ip   = var.cluster_ip
-    state_status = "active"
   }
 }
 

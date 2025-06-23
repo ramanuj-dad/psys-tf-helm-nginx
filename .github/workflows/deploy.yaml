@@ -97,7 +97,5 @@ jobs:
               echo 'Checking NGINX Ingress status...'
               kubectl get pods -n ingress-nginx
               kubectl get svc -n ingress-nginx
-              echo 'Checking Terraform state in deployment-automation namespace...'
-              kubectl get configmap -n deployment-automation
             fi
           "

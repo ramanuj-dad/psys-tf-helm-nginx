@@ -39,8 +39,6 @@ spec:
             echo "✅ Checking deployed resources..."
             kubectl get pods -n ingress-nginx
             kubectl get svc -n ingress-nginx
-            echo "✅ Checking deployment-automation namespace for logs/state..."
-            kubectl get configmap -n deployment-automation
             
           elif [ "$ACTION" = "destroy" ]; then
             echo "🗑️ Destroying infrastructure with Terraform..."
