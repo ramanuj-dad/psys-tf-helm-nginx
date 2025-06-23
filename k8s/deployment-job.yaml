@@ -18,8 +18,6 @@ spec:
         env:
         - name: ACTION
           value: "ACTION_PLACEHOLDER"
-        - name: CLUSTER_IP
-          value: "CLUSTER_IP_PLACEHOLDER"
         command: ["/bin/bash", "-c"]
         args:
         - |
@@ -36,10 +34,8 @@ spec:
           
           # Validate environment variables
           [ -z "$ACTION" ] && fail "ACTION environment variable is not set"
-          [ -z "$CLUSTER_IP" ] && fail "CLUSTER_IP environment variable is not set"
           
           echo "Action: $ACTION"
-          echo "Cluster IP: $CLUSTER_IP"
           
           cd /workspace/terraform || fail "Could not change to terraform directory"
           
@@ -48,10 +44,10 @@ spec:
             terraform init || fail "Terraform initialization failed"
             
             echo "📋 Planning Terraform deployment..."
-            terraform plan -var="cluster_ip=$CLUSTER_IP" || fail "Terraform plan failed"
+            terraform plan || fail "Terraform plan failed"
             
             echo "📋 Applying Terraform configuration..."
-            terraform apply -auto-approve -var="cluster_ip=$CLUSTER_IP" || fail "Terraform apply failed"
+            terraform apply -auto-approve || fail "Terraform apply failed"
             
             echo "📋 Terraform deployment completed!"
             terraform output || echo "No outputs available"
@@ -63,7 +59,7 @@ spec:
           elif [ "$ACTION" = "destroy" ]; then
             echo "🗑️ Destroying infrastructure with Terraform..."
             terraform init || fail "Terraform initialization failed"
-            terraform destroy -auto-approve -var="cluster_ip=$CLUSTER_IP" || fail "Terraform destroy failed"
+            terraform destroy -auto-approve || fail "Terraform destroy failed"
             echo "✅ Destruction completed!"
           else
             fail "Unknown action: $ACTION"

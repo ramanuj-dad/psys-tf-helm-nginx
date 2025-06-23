@@ -1,6 +1,4 @@
-output "cluster_ip" {
-  value = var.cluster_ip
-}
+# No need for cluster_ip output
 
 output "deployment_namespace" {
   value = "deployment-automation"

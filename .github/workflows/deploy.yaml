@@ -11,10 +11,6 @@ on:
         options:
           - apply
           - destroy
-      cluster_ip:
-        description: 'Kubernetes cluster IP address'
-        required: true
-        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -87,13 +83,11 @@ jobs:
         run: |
           ACTION="${{ github.event.inputs.action || 'apply' }}"
           IMAGE="${{ needs.build.outputs.image }}"
-          CLUSTER_IP="${{ github.event.inputs.cluster_ip }}"
           
           # Process the job yaml with environment variables
           cat k8s/deployment-job.yaml | \
             sed "s|IMAGE_PLACEHOLDER|$IMAGE|g" | \
             sed "s|ACTION_PLACEHOLDER|$ACTION|g" | \
-            sed "s|CLUSTER_IP_PLACEHOLDER|$CLUSTER_IP|g" | \
             kubectl apply -f -
           
           echo "Job deployed to cluster using service account"
