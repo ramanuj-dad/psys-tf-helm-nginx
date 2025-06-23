@@ -37,20 +37,24 @@ resource "helm_release" "nginx_ingress" {
   name             = "nginx-ingress"
   repository       = "https://kubernetes.github.io/ingress-nginx"
   chart            = "ingress-nginx"
+  version          = var.nginx_ingress_chart_version
   namespace        = kubernetes_namespace.ingress.metadata[0].name
   create_namespace = false
 
   values = [
     yamlencode({
       controller = {
+        image = {
+          tag = var.nginx_ingress_controller_image_tag
+        }
         service = {
           type = "NodePort"
           nodePorts = {
-            http  = 30080
-            https = 30443
+            http  = var.http_nodeport
+            https = var.https_nodeport
           }
         }
-        replicaCount = 1
+        replicaCount = var.controller_replica_count
         tolerations = [
           {
             key      = "node-role.kubernetes.io/control-plane"

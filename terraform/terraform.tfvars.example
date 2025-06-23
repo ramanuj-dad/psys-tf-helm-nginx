@@ -1,0 +1,21 @@
+# NGINX Ingress Controller Version Configuration
+# Copy this file to terraform.tfvars and modify as needed
+
+# NGINX Ingress Helm Chart Version
+# See: https://github.com/kubernetes/ingress-nginx/releases
+nginx_ingress_chart_version = "4.12.3"
+
+# NGINX Ingress Controller Application Version
+# This should match the appVersion in the chart
+nginx_ingress_app_version = "1.12.3"
+
+# NGINX Ingress Controller Docker Image Tag
+# See: https://github.com/kubernetes/ingress-nginx/pkgs/container/ingress-nginx%2Fcontroller
+nginx_ingress_controller_image_tag = "v1.12.3"
+
+# Network Configuration
+http_nodeport  = 30080
+https_nodeport = 30443
+
+# Deployment Configuration
+controller_replica_count = 1

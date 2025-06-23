@@ -53,3 +53,22 @@ The deployment uses:
 - A dedicated namespace (`deployment-automation`) for deployment jobs
 - A service account with proper RBAC permissions
 - Separate namespace (`ingress-nginx`) for the actual ingress controller resources
+
+## Version Management
+
+This project uses pinned versions for all components to ensure reproducible and reliable deployments:
+
+### Current Versions
+- **NGINX Ingress Helm Chart**: 4.12.3
+- **NGINX Ingress Controller**: 1.12.3
+- **Controller Image Tag**: v1.12.3
+
+### Configuration
+All versions are managed through Terraform variables in `terraform/variables.tf`. To customize versions:
+
+1. Copy `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars`
+2. Modify the version variables as needed
+3. Run the deployment workflow
+
+### Version Updates
+See [VERSIONS.md](VERSIONS.md) for detailed version management guidelines and update procedures.
