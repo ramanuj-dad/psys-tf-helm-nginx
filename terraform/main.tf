@@ -13,12 +13,12 @@ terraform {
 }
 
 provider "kubernetes" {
-  config_path = "~/.kube/config"
+  # Uses in-cluster service account authentication when running in the Kubernetes job
 }
 
 provider "helm" {
   kubernetes {
-    config_path = "~/.kube/config"
+    # Uses in-cluster service account authentication when running in the Kubernetes job
   }
 }
 

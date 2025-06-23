@@ -19,6 +19,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}/nginx-ingress-deployer
+  KUBE_NAMESPACE: deployment-automation
 
 jobs:
   build:
@@ -55,13 +56,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup SSH
+      - name: Set up kubeconfig
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+          
+      - name: Ensure service account exists
+        run: |
+          # Create the namespace if it doesn't exist
+          kubectl get namespace ${{ env.KUBE_NAMESPACE }} || kubectl create namespace ${{ env.KUBE_NAMESPACE }}
+          
+          # Apply the service account and RBAC configuration
+          kubectl apply -f k8s/service-account.yaml
 
       - name: Deploy
         run: |
@@ -69,33 +76,27 @@ jobs:
           IMAGE="${{ needs.build.outputs.image }}"
           CLUSTER_IP="${{ github.event.inputs.cluster_ip }}"
           
-          sed "s|IMAGE_PLACEHOLDER|$IMAGE|g" k8s/deployment-job.yaml > /tmp/job.yaml
-          sed -i "s|ACTION_PLACEHOLDER|$ACTION|g" /tmp/job.yaml
-          sed -i "s|CLUSTER_IP_PLACEHOLDER|$CLUSTER_IP|g" /tmp/job.yaml
-          sed -i "s|TARGET_USER_PLACEHOLDER|${{ secrets.TARGET_USER }}|g" /tmp/job.yaml
+          # Process the job yaml with environment variables
+          cat k8s/deployment-job.yaml | \
+            sed "s|IMAGE_PLACEHOLDER|$IMAGE|g" | \
+            sed "s|ACTION_PLACEHOLDER|$ACTION|g" | \
+            sed "s|CLUSTER_IP_PLACEHOLDER|$CLUSTER_IP|g" | \
+            kubectl apply -f -
           
-          scp -i ~/.ssh/id_rsa /tmp/job.yaml ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}:/tmp/
-          
-          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} "
-            # Create deployment-automation namespace if it doesn't exist
-            kubectl get namespace deployment-automation || kubectl create namespace deployment-automation
-            
-            # Apply the job yaml
-            kubectl apply -f /tmp/job.yaml
-            rm /tmp/job.yaml
-          "
+          echo "Job deployed to cluster using service account"
 
       - name: Monitor
         run: |
           ACTION="${{ github.event.inputs.action || 'apply' }}"
           
-          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} "
-            kubectl wait --for=condition=complete job/nginx-ingress-deployment-$ACTION -n deployment-automation --timeout=900s
-            kubectl logs job/nginx-ingress-deployment-$ACTION -n deployment-automation
-            
-            if [ '$ACTION' = 'apply' ]; then
-              echo 'Checking NGINX Ingress status...'
-              kubectl get pods -n ingress-nginx
-              kubectl get svc -n ingress-nginx
-            fi
-          "
+          echo "Waiting for job to complete..."
+          kubectl wait --for=condition=complete job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }} --timeout=900s
+          
+          echo "Job logs:"
+          kubectl logs job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }}
+          
+          if [ "$ACTION" = "apply" ]; then
+            echo "Checking NGINX Ingress status..."
+            kubectl get pods -n ingress-nginx
+            kubectl get svc -n ingress-nginx
+          fi

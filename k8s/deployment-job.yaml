@@ -8,6 +8,7 @@ spec:
   backoffLimit: 1
   template:
     spec:
+      serviceAccountName: nginx-ingress-deployer
       restartPolicy: Never
       containers:
       - name: deployer
@@ -46,10 +47,4 @@ spec:
             terraform destroy -auto-approve -var="cluster_ip=$CLUSTER_IP"
             echo "✅ Destruction completed!"
           fi
-        volumeMounts:
-        - name: kube-config
-          mountPath: /root/.kube
-      volumes:
-      - name: kube-config
-        hostPath:
-          path: /home/TARGET_USER_PLACEHOLDER/.kube
+        # No volumeMounts needed as the Pod uses the service account for Kubernetes API access
