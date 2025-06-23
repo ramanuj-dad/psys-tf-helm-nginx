@@ -22,16 +22,20 @@ provider "helm" {
   }
 }
 
-resource "kubernetes_namespace" "deployment_automation" {
+# We don't manage the deployment-automation namespace with Terraform
+# because the job itself runs in this namespace.
+# This avoids circular dependencies during apply/destroy operations.
+
+resource "kubernetes_namespace" "auto_tfe_nginx" {
   metadata {
-    name = "deployment-automation"
+    name = "auto-tfe-nginx"
   }
 }
 
 resource "kubernetes_config_map" "deployment_config" {
   metadata {
     name      = "deployment-config"
-    namespace = kubernetes_namespace.deployment_automation.metadata[0].name
+    namespace = kubernetes_namespace.auto_tfe_nginx.metadata[0].name
   }
   data = {
     cluster_ip = var.cluster_ip
@@ -51,6 +55,19 @@ resource "kubernetes_config_map" "cluster_info" {
   }
   data = {
     cluster_ip = var.cluster_ip
+  }
+}
+
+# Store terraform state/logs information in auto-tfe-nginx namespace for inspection
+resource "kubernetes_config_map" "terraform_state" {
+  metadata {
+    name      = "terraform-state"
+    namespace = kubernetes_namespace.auto_tfe_nginx.metadata[0].name
+  }
+  data = {
+    timestamp    = timestamp()
+    cluster_ip   = var.cluster_ip
+    state_status = "active"
   }
 }
 

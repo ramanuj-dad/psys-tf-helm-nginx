@@ -16,10 +16,7 @@ spec:
         - name: ACTION
           value: "ACTION_PLACEHOLDER"
         - name: CLUSTER_IP
-          valueFrom:
-            configMapKeyRef:
-              name: deployment-config
-              key: cluster_ip
+          value: "CLUSTER_IP_PLACEHOLDER"
         command: ["/bin/bash", "-c"]
         args:
         - |
@@ -42,6 +39,8 @@ spec:
             echo "✅ Checking deployed resources..."
             kubectl get pods -n ingress-nginx
             kubectl get svc -n ingress-nginx
+            echo "✅ Checking auto-tfe-nginx namespace for logs/state..."
+            kubectl get configmap -n auto-tfe-nginx
             
           elif [ "$ACTION" = "destroy" ]; then
             echo "🗑️ Destroying infrastructure with Terraform..."

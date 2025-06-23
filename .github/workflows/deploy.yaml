@@ -11,6 +11,10 @@ on:
         options:
           - apply
           - destroy
+      cluster_ip:
+        description: 'Kubernetes cluster IP address'
+        required: true
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -63,9 +67,11 @@ jobs:
         run: |
           ACTION="${{ github.event.inputs.action || 'apply' }}"
           IMAGE="${{ needs.build.outputs.image }}"
+          CLUSTER_IP="${{ github.event.inputs.cluster_ip }}"
           
           sed "s|IMAGE_PLACEHOLDER|$IMAGE|g" k8s/deployment-job.yaml > /tmp/job.yaml
           sed -i "s|ACTION_PLACEHOLDER|$ACTION|g" /tmp/job.yaml
+          sed -i "s|CLUSTER_IP_PLACEHOLDER|$CLUSTER_IP|g" /tmp/job.yaml
           sed -i "s|TARGET_USER_PLACEHOLDER|${{ secrets.TARGET_USER }}|g" /tmp/job.yaml
           
           scp -i ~/.ssh/id_rsa /tmp/job.yaml ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}:/tmp/
@@ -87,5 +93,7 @@ jobs:
               echo 'Checking NGINX Ingress status...'
               kubectl get pods -n ingress-nginx
               kubectl get svc -n ingress-nginx
+              echo 'Checking Terraform state in auto-tfe-nginx namespace...'
+              kubectl get configmap -n auto-tfe-nginx
             fi
           "

@@ -2,8 +2,8 @@ output "cluster_ip" {
   value = var.cluster_ip
 }
 
-output "deployment_namespace" {
-  value = kubernetes_namespace.deployment_automation.metadata[0].name
+output "auto_tfe_nginx_namespace" {
+  value = kubernetes_namespace.auto_tfe_nginx.metadata[0].name
 }
 
 output "ingress_namespace" {
