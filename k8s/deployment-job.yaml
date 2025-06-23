@@ -1,9 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nginx-ingress-deplo          elif [ "$ACTION" = "destroy" ]; then
-            echo "📋 Loading previous Terraform state from ConfigMap (mandatory for destroy)..."
-            ./state-manager.sh load_mandatory || fail "Failed to load Terraform state - cannot destroy without state"nt-ACTION_PLACEHOLDER
+  name: nginx-ingress-deployment-ACTION_PLACEHOLDER
   namespace: deployment-automation
   annotations:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
