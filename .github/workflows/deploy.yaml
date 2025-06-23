@@ -101,64 +101,95 @@ jobs:
           sed "s|IMAGE_PLACEHOLDER|$IMAGE|g" k8s/deployment-job.yaml > /tmp/deployment-job.yaml
           sed -i "s|ACTION_PLACEHOLDER|$ACTION|g" /tmp/deployment-job.yaml
           
-          # Deploy the job
-          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} '
+          echo "🚀 Deploying Kubernetes Job with image: $IMAGE"
+          echo "Action: $ACTION"
+          
+          # Transfer the job manifest to remote server
+          scp -i ~/.ssh/id_rsa /tmp/deployment-job.yaml ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}:/tmp/
+          
+          # Execute all kubectl commands on the remote server
+          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} "
+            echo '🏗️  Setting up deployment environment...'
+            
             # Create namespace if it doesn't exist
             kubectl create namespace deployment-automation --dry-run=client -o yaml | kubectl apply -f -
             
-            # Apply the job
-            kubectl delete job nginx-ingress-deployment-'$ACTION' -n deployment-automation --ignore-not-found=true
-          '
-          
-          # Transfer and apply the job manifest
-          scp -i ~/.ssh/id_rsa /tmp/deployment-job.yaml ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}:/tmp/
-          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} '
+            # Delete any existing job with the same name
+            kubectl delete job nginx-ingress-deployment-$ACTION -n deployment-automation --ignore-not-found=true
+            
+            echo '📋 Applying deployment job...'
+            # Apply the new job
             kubectl apply -f /tmp/deployment-job.yaml
-            rm /tmp/deployment-job.yaml
-          '
+            
+            # Clean up temp file
+            rm -f /tmp/deployment-job.yaml
+            
+            echo '✅ Job deployment completed!'
+          "
 
       - name: Monitor Job Progress
         run: |
           ACTION="${{ github.event.inputs.action || 'apply' }}"
           
-          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} '
-            echo "🚀 Starting deployment job monitoring..."
+          echo "🔍 Monitoring deployment job progress..."
+          
+          # Execute all monitoring commands on the remote server
+          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} "
+            echo '🚀 Starting deployment job monitoring...'
             
-            # Wait for job to start
-            kubectl wait --for=condition=ready pod -l job-name=nginx-ingress-deployment-'$ACTION' -n deployment-automation --timeout=300s
+            # Wait for job to start (with timeout)
+            echo '⏳ Waiting for job to start...'
+            timeout 300 bash -c 'until kubectl get job nginx-ingress-deployment-$ACTION -n deployment-automation >/dev/null 2>&1; do sleep 5; done' || {
+              echo '❌ Timeout waiting for job to be created'
+              exit 1
+            }
+            
+            # Wait for pod to be ready
+            echo '⏳ Waiting for pod to be ready...'
+            kubectl wait --for=condition=ready pod -l job-name=nginx-ingress-deployment-$ACTION -n deployment-automation --timeout=300s || {
+              echo '❌ Timeout waiting for pod to be ready'
+              kubectl get pods -l job-name=nginx-ingress-deployment-$ACTION -n deployment-automation
+              exit 1
+            }
             
             # Follow job logs
-            kubectl logs job/nginx-ingress-deployment-'$ACTION' -n deployment-automation -f --timeout=600s || true
+            echo '📋 Following job logs...'
+            kubectl logs job/nginx-ingress-deployment-$ACTION -n deployment-automation -f --timeout=600s || {
+              echo '⚠️  Log following timed out, checking job status...'
+            }
             
             # Check job status
-            echo ""
-            echo "=== Job Status ==="
-            kubectl get job nginx-ingress-deployment-'$ACTION' -n deployment-automation
+            echo ''
+            echo '=== Job Status ==='
+            kubectl get job nginx-ingress-deployment-$ACTION -n deployment-automation
             
             # Check if job succeeded
-            if kubectl get job nginx-ingress-deployment-'$ACTION' -n deployment-automation -o jsonpath="{.status.conditions[?(@.type==\"Complete\")].status}" | grep -q "True"; then
-              echo "✅ Deployment job completed successfully!"
+            if kubectl get job nginx-ingress-deployment-$ACTION -n deployment-automation -o jsonpath='{.status.conditions[?(@.type==\"Complete\")].status}' | grep -q 'True'; then
+              echo '✅ Deployment job completed successfully!'
               
-              if [ "'$ACTION'" = "apply" ]; then
-                echo ""
-                echo "=== NGINX Ingress Controller Status ==="
-                kubectl get pods -n ingress-nginx
-                kubectl get svc -n ingress-nginx
+              if [ '$ACTION' = 'apply' ]; then
+                echo ''
+                echo '=== NGINX Ingress Controller Status ==='
+                kubectl get pods -n ingress-nginx || echo 'ℹ️  NGINX Ingress namespace not found yet'
+                kubectl get svc -n ingress-nginx || echo 'ℹ️  NGINX Ingress services not found yet'
               fi
             else
-              echo "❌ Deployment job failed!"
+              echo '❌ Deployment job failed!'
+              echo 'Pod logs:'
+              kubectl logs -l job-name=nginx-ingress-deployment-$ACTION -n deployment-automation --tail=50 || true
               exit 1
             fi
-          '
+          "
 
       - name: Cleanup
         if: always()
         run: |
           ACTION="${{ github.event.inputs.action || 'apply' }}"
           
-          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} '
-            echo "🧹 Cleaning up old jobs..."
+          # Execute cleanup on the remote server
+          ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} "
+            echo '🧹 Cleaning up old jobs...'
             # Keep only the last 3 jobs
             kubectl get jobs -n deployment-automation --sort-by=.metadata.creationTimestamp -o name | head -n -3 | xargs -r kubectl delete -n deployment-automation --ignore-not-found=true || true
-            echo "✅ Cleanup completed"
-          ' || true
+            echo '✅ Cleanup completed'
+          " || true
