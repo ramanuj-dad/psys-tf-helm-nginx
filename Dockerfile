@@ -27,6 +27,14 @@ RUN curl -fsSL https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz | tar
     rm -rf linux-amd64
 
 WORKDIR /workspace
+
+# Create required directories
+RUN mkdir -p /workspace/terraform /workspace/k8s
+
+# Copy project files
 COPY . .
+
+# Make scripts executable
+RUN chmod +x /workspace/k8s/state-manager.sh
 
 CMD ["/bin/bash"]

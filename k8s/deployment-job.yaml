@@ -39,6 +39,10 @@ spec:
           
           cd /workspace/terraform || fail "Could not change to terraform directory"
           
+          # Copy state manager script to be accessible
+          cp /workspace/k8s/state-manager.sh /workspace/terraform/
+          chmod +x /workspace/terraform/state-manager.sh
+          
           if [ "$ACTION" = "apply" ]; then
             echo "📋 Initializing Terraform..."
             terraform init || fail "Terraform initialization failed"
@@ -52,14 +56,26 @@ spec:
             echo "📋 Terraform deployment completed!"
             terraform output || echo "No outputs available"
             
+            echo "💾 Saving Terraform state to ConfigMap for future destroy operations..."
+            ./state-manager.sh save || fail "Failed to save Terraform state to ConfigMap"
+            
             echo "✅ Checking deployed resources..."
             kubectl get pods -n ingress-nginx || echo "No pods found in ingress-nginx namespace"
             kubectl get svc -n ingress-nginx || echo "No services found in ingress-nginx namespace"
             
           elif [ "$ACTION" = "destroy" ]; then
-            echo "🗑️ Destroying infrastructure with Terraform..."
+            echo "� Loading previous Terraform state from ConfigMap..."
+            ./state-manager.sh load || fail "Failed to load Terraform state - make sure you've run apply first"
+            
+            echo "📋 Initializing Terraform..."
             terraform init || fail "Terraform initialization failed"
+            
+            echo "🗑️ Destroying infrastructure with Terraform..."
             terraform destroy -auto-approve || fail "Terraform destroy failed"
+            
+            echo "🧹 Cleaning up Terraform state ConfigMap..."
+            ./state-manager.sh cleanup || echo "Warning: Failed to clean up state ConfigMap"
+            
             echo "✅ Destruction completed!"
           else
             fail "Unknown action: $ACTION"

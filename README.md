@@ -11,7 +11,9 @@ The deployment follows Kubernetes-native security best practices:
 3. The workflow creates a temporary service account with cluster-admin privileges
 4. The workflow deploys a Kubernetes Job that uses this service account
 5. The job container executes Terraform to provision the NGINX Ingress Controller
-6. On successful deployment, the temporary admin service account is automatically removed
+6. After successful apply, the Terraform state is stored in a ConfigMap for later destroy operations
+7. When destroying, the workflow loads the state from the ConfigMap before running Terraform destroy
+8. On successful deployment, the temporary admin service account is automatically removed
 
 ## Security Considerations
 
@@ -19,6 +21,15 @@ The deployment follows Kubernetes-native security best practices:
 - Service account is left in place if deployment fails to aid debugging
 - No SSH keys or direct node access required
 - Clean up of privileged accounts after successful operations
+
+## State Management
+
+This deployment uses a Kubernetes ConfigMap to store and manage Terraform state:
+
+- After successful apply, state is stored in a ConfigMap in the deployment-automation namespace
+- Before destroy operations, state is loaded from the ConfigMap
+- After successful destroy, the state ConfigMap is deleted
+- This approach ensures that destroy operations can find the resources created by apply operations
 
 ## Prerequisites
 
