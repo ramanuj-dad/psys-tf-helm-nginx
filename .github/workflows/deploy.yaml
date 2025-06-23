@@ -71,9 +71,6 @@ jobs:
           scp -i ~/.ssh/id_rsa /tmp/job.yaml ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}:/tmp/
           
           ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} "
-            kubectl create namespace deployment-automation --dry-run=client -o yaml | kubectl apply -f -
-            kubectl create configmap deployment-config --from-literal=cluster_ip=${{ secrets.TARGET_HOST }} -n deployment-automation --dry-run=client -o yaml | kubectl apply -f -
-            kubectl delete job nginx-ingress-deployment-$ACTION -n deployment-automation --ignore-not-found=true
             kubectl apply -f /tmp/job.yaml
             rm /tmp/job.yaml
           "
@@ -83,6 +80,12 @@ jobs:
           ACTION="${{ github.event.inputs.action || 'apply' }}"
           
           ssh -i ~/.ssh/id_rsa ${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }} "
-            kubectl wait --for=condition=complete job/nginx-ingress-deployment-$ACTION -n deployment-automation --timeout=600s
+            kubectl wait --for=condition=complete job/nginx-ingress-deployment-$ACTION -n deployment-automation --timeout=900s
             kubectl logs job/nginx-ingress-deployment-$ACTION -n deployment-automation
+            
+            if [ '$ACTION' = 'apply' ]; then
+              echo 'Checking NGINX Ingress status...'
+              kubectl get pods -n ingress-nginx
+              kubectl get svc -n ingress-nginx
+            fi
           "

@@ -28,35 +28,25 @@ spec:
           echo "Action: $ACTION"
           echo "Cluster IP: $CLUSTER_IP"
           
-          cd /workspace
+          cd /workspace/terraform
           
           if [ "$ACTION" = "apply" ]; then
-            echo "📋 Applying Terraform..."
-            cd terraform
+            echo "📋 Initializing Terraform..."
             terraform init
+            echo "📋 Planning Terraform deployment..."
+            terraform plan -var="cluster_ip=$CLUSTER_IP"
+            echo "📋 Applying Terraform configuration..."
             terraform apply -auto-approve -var="cluster_ip=$CLUSTER_IP"
-            cd ..
-            
-            echo "📋 Installing NGINX Ingress with Helm..."
-            helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-            helm repo update
-            helm upgrade --install nginx-ingress ingress-nginx/ingress-nginx \
-              --namespace ingress-nginx \
-              --create-namespace \
-              --values helm/values.yaml \
-              --wait
-            
-            echo "✅ Deployment completed!"
+            echo "📋 Terraform deployment completed!"
+            terraform output
+            echo "✅ Checking deployed resources..."
             kubectl get pods -n ingress-nginx
+            kubectl get svc -n ingress-nginx
             
           elif [ "$ACTION" = "destroy" ]; then
-            echo "🗑️ Destroying NGINX Ingress..."
-            helm uninstall nginx-ingress -n ingress-nginx || true
-            cd terraform
+            echo "🗑️ Destroying infrastructure with Terraform..."
             terraform init
-            terraform destroy -auto-approve -var="cluster_ip=$CLUSTER_IP" || true
-            cd ..
-            kubectl delete namespace ingress-nginx --ignore-not-found=true
+            terraform destroy -auto-approve -var="cluster_ip=$CLUSTER_IP"
             echo "✅ Destruction completed!"
           fi
         volumeMounts:
