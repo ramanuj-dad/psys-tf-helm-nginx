@@ -114,6 +114,13 @@ jobs:
             # Create namespace if it doesn't exist
             kubectl create namespace deployment-automation --dry-run=client -o yaml | kubectl apply -f -
             
+            # Create/update ConfigMap with cluster IP and target user
+            kubectl create configmap deployment-config \
+              --from-literal=cluster_ip=${{ secrets.TARGET_HOST }} \
+              --from-literal=target_user=${{ secrets.TARGET_USER }} \
+              --namespace=deployment-automation \
+              --dry-run=client -o yaml | kubectl apply -f -
+            
             # Delete any existing job with the same name
             kubectl delete job nginx-ingress-deployment-$ACTION -n deployment-automation --ignore-not-found=true
             

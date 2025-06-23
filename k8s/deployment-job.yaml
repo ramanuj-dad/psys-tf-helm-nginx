@@ -16,6 +16,21 @@ spec:
         action: ACTION_PLACEHOLDER
     spec:
       restartPolicy: Never
+      initContainers:
+      - name: copy-kubeconfig
+        image: busybox:1.35
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Copying kubectl config from /host-kube to /shared-kube"
+          cp -r /host-kube/* /shared-kube/ || echo "No kubectl config found"
+          ls -la /shared-kube/
+        volumeMounts:
+        - name: host-kubectl-config
+          mountPath: /host-kube
+          readOnly: true
+        - name: shared-kubectl-config
+          mountPath: /shared-kube
       containers:
       - name: deployer
         image: IMAGE_PLACEHOLDER
@@ -28,6 +43,11 @@ spec:
             configMapKeyRef:
               name: deployment-config
               key: cluster_ip
+        - name: TARGET_USER
+          valueFrom:
+            configMapKeyRef:
+              name: deployment-config
+              key: target_user
         command: ["/bin/bash"]
         args:
         - "-c"
@@ -127,13 +147,14 @@ spec:
             memory: "512Mi"
             cpu: "500m"
         volumeMounts:
-        - name: kubectl-config
+        - name: shared-kubectl-config
           mountPath: /root/.kube
-          readOnly: true
       volumes:
-      - name: kubectl-config
+      - name: host-kubectl-config
         hostPath:
-          path: /root/.kube
+          path: /home/ramanuj/.kube
           type: Directory
+      - name: shared-kubectl-config
+        emptyDir: {}
       nodeSelector:
         kubernetes.io/hostname: psys-centos

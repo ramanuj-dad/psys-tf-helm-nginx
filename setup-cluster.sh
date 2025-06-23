@@ -26,14 +26,19 @@ while true; do
     fi
 done
 
+# Get target user
+read -p "Enter your SSH username (default: $(whoami)): " target_user
+target_user=${target_user:-$(whoami)}
+
 echo -e "${BLUE}📋 Creating namespace and ConfigMap...${NC}"
 
 # Create namespace
 kubectl create namespace deployment-automation --dry-run=client -o yaml | kubectl apply -f -
 
-# Create ConfigMap with cluster IP
+# Create ConfigMap with cluster IP and target user
 kubectl create configmap deployment-config \
     --from-literal=cluster_ip=$cluster_ip \
+    --from-literal=target_user=$target_user \
     --namespace=deployment-automation \
     --dry-run=client -o yaml | kubectl apply -f -
 
@@ -48,6 +53,10 @@ echo -e "   ${YELLOW}SSH_KNOWN_HOSTS${NC}=$(ssh-keyscan -H $cluster_ip 2>/dev/nu
 echo
 echo "2. Push code to main branch or manually trigger the workflow"
 echo "3. Watch the magic happen! 🎉"
+echo
+echo -e "${BLUE}📋 ConfigMap created with:${NC}"
+echo -e "   ${YELLOW}cluster_ip${NC}=$cluster_ip"
+echo -e "   ${YELLOW}target_user${NC}=$target_user"
 echo
 echo -e "${GREEN}🔗 Your NGINX Ingress will be available at:${NC}"
 echo -e "   ${YELLOW}http://$cluster_ip/${NC}"
