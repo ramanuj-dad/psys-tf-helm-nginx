@@ -1,7 +1,12 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nginx-ingress-deployment-ACTION_PLACEHOLDER
+  name: nginx-ingress-de          elif [ "$ACTION" = "destroy" ]; then
+            echo "🔍 Checking previous Terraform state in ConfigMap..."
+            ./state-manager.sh check || fail "No Terraform state found - make sure you've run apply first"
+            
+            echo "📋 Loading previous Terraform state from ConfigMap..."
+            ./state-manager.sh load || fail "Failed to load Terraform state"yment-ACTION_PLACEHOLDER
   namespace: deployment-automation
   annotations:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded

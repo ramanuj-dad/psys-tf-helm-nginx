@@ -14,9 +14,10 @@ save_state() {
     exit 1
   fi
   
-  # Create ConfigMap with state files
-  LOCK_HCL=$(cat .terraform.lock.hcl | base64 -w 0)
-  STATE_FILE=$(cat terraform.tfstate | base64 -w 0)
+  # Create ConfigMap with state files - use correct base64 flags for Alpine
+  # Alpine's busybox base64 doesn't support -w flag, so we encode without wrapping
+  LOCK_HCL=$(cat .terraform.lock.hcl | base64)
+  STATE_FILE=$(cat terraform.tfstate | base64)
   
   # Delete previous ConfigMap if it exists
   kubectl delete configmap $CONFIGMAP_NAME -n $NAMESPACE --ignore-not-found=true
@@ -26,6 +27,12 @@ save_state() {
     --from-literal=timestamp="$(date)" \
     --from-literal=lock_hcl_b64="$LOCK_HCL" \
     --from-literal=state_file_b64="$STATE_FILE"
+  
+  # Verify ConfigMap was created
+  if ! kubectl get configmap $CONFIGMAP_NAME -n $NAMESPACE &>/dev/null; then
+    echo "❌ ERROR: Failed to create state ConfigMap"
+    exit 1
+  fi
     
   echo "✅ Terraform state saved to ConfigMap: $CONFIGMAP_NAME"
 }
@@ -42,12 +49,25 @@ load_state() {
   fi
   
   # Extract state files from ConfigMap
-  LOCK_HCL=$(kubectl get configmap $CONFIGMAP_NAME -n $NAMESPACE -o jsonpath='{.data.lock_hcl_b64}' | base64 --decode)
-  STATE_FILE=$(kubectl get configmap $CONFIGMAP_NAME -n $NAMESPACE -o jsonpath='{.data.state_file_b64}' | base64 --decode)
+  # Use -d for Alpine's busybox base64 decode
+  LOCK_HCL=$(kubectl get configmap $CONFIGMAP_NAME -n $NAMESPACE -o jsonpath='{.data.lock_hcl_b64}' | base64 -d)
+  STATE_FILE=$(kubectl get configmap $CONFIGMAP_NAME -n $NAMESPACE -o jsonpath='{.data.state_file_b64}' | base64 -d)
   
+  # Check if decoding was successful
+  if [ -z "$LOCK_HCL" ] || [ -z "$STATE_FILE" ]; then
+    echo "❌ ERROR: Failed to decode state files from ConfigMap"
+    exit 1
+  fi
+
   # Write the state files
   echo "$LOCK_HCL" > .terraform.lock.hcl
   echo "$STATE_FILE" > terraform.tfstate
+  
+  # Verify files were created
+  if [ ! -s .terraform.lock.hcl ] || [ ! -s terraform.tfstate ]; then
+    echo "❌ ERROR: Failed to write state files"
+    exit 1
+  fi
   
   echo "✅ Terraform state loaded from ConfigMap: $CONFIGMAP_NAME"
 }
@@ -59,9 +79,25 @@ cleanup_state() {
   echo "✅ Terraform state ConfigMap removed"
 }
 
+# Function to check if state exists in ConfigMap
+check_state() {
+  echo "🔍 Checking if Terraform state exists in ConfigMap..."
+  
+  if kubectl get configmap $CONFIGMAP_NAME -n $NAMESPACE &>/dev/null; then
+    echo "✅ Terraform state ConfigMap found: $CONFIGMAP_NAME"
+    echo "Timestamp: $(kubectl get configmap $CONFIGMAP_NAME -n $NAMESPACE -o jsonpath='{.data.timestamp}')"
+    echo "Contains lock file: $(kubectl get configmap $CONFIGMAP_NAME -n $NAMESPACE -o jsonpath='{.data.lock_hcl_b64}' | wc -c) bytes"
+    echo "Contains state file: $(kubectl get configmap $CONFIGMAP_NAME -n $NAMESPACE -o jsonpath='{.data.state_file_b64}' | wc -c) bytes"
+    return 0
+  else
+    echo "❌ No Terraform state ConfigMap found"
+    return 1
+  fi
+}
+
 # Display usage if no argument is provided
 if [ $# -eq 0 ]; then
-  echo "Usage: $0 [save|load|cleanup]"
+  echo "Usage: $0 [save|load|cleanup|check]"
   exit 1
 fi
 
@@ -76,8 +112,11 @@ case "$1" in
   "cleanup")
     cleanup_state
     ;;
+  "check")
+    check_state
+    ;;
   *)
-    echo "Invalid argument: $1. Use 'save', 'load', or 'cleanup'"
+    echo "Invalid argument: $1. Use 'save', 'load', 'cleanup', or 'check'"
     exit 1
     ;;
 esac
