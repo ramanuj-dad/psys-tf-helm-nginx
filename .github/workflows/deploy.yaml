@@ -58,6 +58,10 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > ~/.kube/config
           chmod 600 ~/.kube/config
           
+      - name: Generate Random Suffix
+        id: random
+        run: echo "suffix=$(cat /dev/urandom | tr -dc 'a-z' | fold -w 5 | head -n 1)" >> $GITHUB_OUTPUT
+          
       - name: Create temporary admin service account
         run: |
           # Create the namespace if it doesn't exist
@@ -78,11 +82,13 @@ jobs:
         run: |
           ACTION="${{ github.event.inputs.action || 'apply' }}"
           IMAGE="${{ needs.build.outputs.image }}"
+          RANDOM_SUFFIX="${{ steps.random.outputs.suffix }}"
           
           # Process the job yaml with environment variables
           cat k8s/deployment-job.yaml | \
             sed "s|IMAGE_PLACEHOLDER|$IMAGE|g" | \
             sed "s|ACTION_PLACEHOLDER|$ACTION|g" | \
+            sed "s|RANDOM_PLACEHOLDER|$RANDOM_SUFFIX|g" | \
             kubectl apply -f -
           
           echo "Job deployed to cluster using service account"
@@ -90,21 +96,23 @@ jobs:
       - name: Monitor
         run: |
           ACTION="${{ github.event.inputs.action || 'apply' }}"
+          RANDOM_SUFFIX="${{ steps.random.outputs.suffix }}"
+          JOB_NAME="nginx-ingress-deployment-$ACTION-$RANDOM_SUFFIX"
           
           echo "Waiting for job to complete..."
           # Use || true to prevent the workflow from failing if the job fails
-          kubectl wait --for=condition=complete job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }} --timeout=900s || true
+          kubectl wait --for=condition=complete job/$JOB_NAME -n ${{ env.KUBE_NAMESPACE }} --timeout=900s || true
           
           # Debug: Check if job exists and show its full YAML
           echo "Job status:"
-          kubectl get job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }} -o yaml || echo "Job not found"
+          kubectl get job/$JOB_NAME -n ${{ env.KUBE_NAMESPACE }} -o yaml || echo "Job not found"
           
           # Check if the job failed and get logs
-          JOB_STATUS=$(kubectl get job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}')
-          JOB_SUCCEEDED=$(kubectl get job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.status.succeeded}')
+          JOB_STATUS=$(kubectl get job/$JOB_NAME -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}')
+          JOB_SUCCEEDED=$(kubectl get job/$JOB_NAME -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.status.succeeded}')
           
           echo "Job logs:"
-          kubectl logs job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }}
+          kubectl logs job/$JOB_NAME -n ${{ env.KUBE_NAMESPACE }}
           
           if [ "$ACTION" = "apply" ]; then
             echo "Checking NGINX Ingress status..."
@@ -122,14 +130,14 @@ jobs:
           fi
           
           # If job failed or appears to be stuck, provide detailed diagnostics
-          if [ "$JOB_STATUS" == "True" ] || [ -z "$(kubectl get pods -n ${{ env.KUBE_NAMESPACE }} -l job-name=nginx-ingress-deployment-$ACTION --field-selector=status.phase==Succeeded -o name)" ]; then
+          if [ "$JOB_STATUS" == "True" ] || [ -z "$(kubectl get pods -n ${{ env.KUBE_NAMESPACE }} -l job-name=$JOB_NAME --field-selector=status.phase==Succeeded -o name)" ]; then
             echo "::error::Job failed or did not complete successfully. Getting additional debugging information..."
             
             echo "--- Job Status ---"
-            kubectl describe job/nginx-ingress-deployment-$ACTION -n ${{ env.KUBE_NAMESPACE }}
+            kubectl describe job/$JOB_NAME -n ${{ env.KUBE_NAMESPACE }}
             
             echo "--- Pod Details ---"
-            POD_NAME=$(kubectl get pods -n ${{ env.KUBE_NAMESPACE }} -l job-name=nginx-ingress-deployment-$ACTION -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+            POD_NAME=$(kubectl get pods -n ${{ env.KUBE_NAMESPACE }} -l job-name=$JOB_NAME -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
             if [ -n "$POD_NAME" ]; then
               kubectl describe pod $POD_NAME -n ${{ env.KUBE_NAMESPACE }}
               echo "--- Pod Logs ---"

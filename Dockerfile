@@ -36,5 +36,6 @@ COPY . .
 
 # Make scripts executable
 RUN chmod +x /workspace/k8s/state-manager.sh
+RUN chmod +x /workspace/scripts/run-deployment.sh
 
 CMD ["/bin/bash"]
