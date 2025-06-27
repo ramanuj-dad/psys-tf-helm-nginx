@@ -48,10 +48,13 @@ resource "helm_release" "nginx_ingress" {
           tag = var.nginx_ingress_controller_image_tag
         }
         service = {
-          type = "NodePort"
-          nodePorts = {
-            http  = var.http_nodeport
-            https = var.https_nodeport
+          type = "ClusterIP"
+        }
+        hostPort = {
+          enabled = true
+          ports = {
+            http  = 80
+            https = 443
           }
         }
         replicaCount = var.controller_replica_count
